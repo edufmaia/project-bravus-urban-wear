@@ -17,6 +17,7 @@ type SupplierRow = {
   name: string;
   email?: string;
   phone?: string;
+  notes?: string;
   status?: string;
 };
 
@@ -66,6 +67,7 @@ const toSupplierRow = (record: Record<string, string>): SupplierRow => ({
   name: record.name ?? "",
   email: record.email || undefined,
   phone: record.phone || undefined,
+  notes: record.notes || undefined,
   status: record.status || "ATIVO",
 });
 
@@ -428,6 +430,30 @@ const parseProductsPtCsv = (text: string): ProductPtPreview => {
   return buildProductsPtPreview(records);
 };
 
+const normalizeSkuChunk = (value: string) =>
+  value
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const buildAutoSku = (code: string, color: string, size: string) =>
+  [code, color, size].map(normalizeSkuChunk).filter(Boolean).join("-");
+
+const detectXlsxImportMode = (buffer: ArrayBuffer): "multi" | "produtos_pt" | null => {
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const normalizedSheetNames = workbook.SheetNames.map((name) => normalizeKey(name));
+  const hasMultiSheet = entityOrder.some((entity) => normalizedSheetNames.includes(entity));
+  const hasProdutosPtSheet = workbook.SheetNames.some(
+    (name) => normalizeHeaderPt(name) === normalizeHeaderPt("Produtos")
+  );
+  if (hasMultiSheet && !hasProdutosPtSheet) return "multi";
+  if (hasProdutosPtSheet && !hasMultiSheet) return "produtos_pt";
+  return null;
+};
+
 export function Products() {
   const { profile } = useAuth();
   const role = profile?.role ?? "VISUALIZADOR";
@@ -465,6 +491,9 @@ export function Products() {
     collection: "",
     supplier_id: "",
     status: "ATIVO",
+    initial_sku: "",
+    initial_color: "",
+    initial_size: "",
   });
   const [skuForm, setSkuForm] = useState({
     id: "",
@@ -567,6 +596,9 @@ export function Products() {
       collection: "",
       supplier_id: "",
       status: "ATIVO",
+      initial_sku: "",
+      initial_color: "",
+      initial_size: "",
     });
     setExistingImagePath(null);
     setImageFile(null);
@@ -583,6 +615,9 @@ export function Products() {
       collection: product.collection ?? "",
       supplier_id: product.supplier_id ?? "",
       status: product.status ?? "ATIVO",
+      initial_sku: "",
+      initial_color: "",
+      initial_size: "",
     });
     setExistingImagePath(product.image_url ?? null);
     setImageFile(null);
@@ -625,8 +660,13 @@ export function Products() {
       return;
     }
     setActionError(null);
+    const isCreating = !productForm.id;
     if (!productForm.code || !productForm.name || !productForm.category || !productForm.supplier_id) {
       setActionError("Preencha código, nome, categoria e fornecedor.");
+      return;
+    }
+    if (isCreating && (!productForm.initial_color.trim() || !productForm.initial_size.trim())) {
+      setActionError("Preencha cor e tamanho para criar o SKU inicial do produto.");
       return;
     }
     const { data: existing } = await supabase
@@ -655,6 +695,36 @@ export function Products() {
       return;
     }
     const productId = productForm.id || response.data?.id;
+    if (!productId) {
+      setActionError("Não foi possível identificar o produto salvo.");
+      return;
+    }
+    if (isCreating) {
+      const skuValue = (productForm.initial_sku.trim()
+        ? normalizeSkuChunk(productForm.initial_sku)
+        : buildAutoSku(productForm.code, productForm.initial_color, productForm.initial_size)
+      ).toUpperCase();
+      if (!skuValue) {
+        await supabase.from("products").delete().eq("id", productId);
+        setActionError("Não foi possível gerar o SKU inicial. Revise código, cor e tamanho.");
+        return;
+      }
+      const { error: skuError } = await supabase.from("product_skus").insert({
+        product_id: productId,
+        sku: skuValue,
+        color: productForm.initial_color.trim(),
+        size: productForm.initial_size.trim(),
+        cost: 0,
+        price: null,
+        stock_min: 0,
+        status: "ATIVO",
+      });
+      if (skuError) {
+        await supabase.from("products").delete().eq("id", productId);
+        setActionError("Não foi possível criar o SKU inicial. Verifique se o SKU já existe.");
+        return;
+      }
+    }
     if (imageFile && productId) {
       try {
         const imagePath = await uploadProductImage(productId, imageFile);
@@ -736,54 +806,56 @@ export function Products() {
     await loadData();
   };
 
-  const readImportFile = async (file: File) => {
-    const isXlsx = file.name.toLowerCase().endsWith(".xlsx");
-    if (isXlsx) {
-      const buffer = await file.arrayBuffer();
-      return parseXlsxImport(buffer);
-    }
-    const text = await file.text();
-    return parseCsvImport(text);
-  };
-
-  const readImportProductsPt = async (file: File) => {
-    const isCsv = file.name.toLowerCase().endsWith(".csv");
-    if (isCsv) {
-      const text = await file.text();
-      return parseProductsPtCsv(text);
-    }
-    const buffer = await file.arrayBuffer();
-    return parseProductsPtXlsx(buffer);
-  };
-
   const handleImportPreview = async (file: File) => {
-    setActionError(null);
-    setImportSummary(null);
-    setImportState((prev) => ({ ...prev, status: "idle", message: "Analisando arquivo..." }));
-    const isCsv = file.name.toLowerCase().endsWith(".csv");
-    if (isCsv) {
-      const text = await file.text();
-      const normalized = text.replace(/^\ufeff/, "");
-      const firstLine = normalized.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
-      const delimiter = firstLine.includes(";") ? ";" : ",";
-      const headers = parseCsvLine(firstLine, delimiter).map((h) => normalizeHeaderPt(h));
-      const hasEntity = headers.includes("entity");
-      const hasCodigoProduto = headers.includes(normalizeHeaderPt("Código do Produto"));
-      if (hasEntity) {
-        setImportMode("multi");
-        const preview = parseCsvImport(normalized);
-        setImportPtPreview(null);
-        setImportPreview(preview);
-        if (preview.errors.length > 0) {
-          setImportState((prev) => ({ ...prev, status: "error", message: "Erros encontrados no arquivo." }));
-        } else {
-          setImportState((prev) => ({ ...prev, status: "idle", message: "Arquivo pronto para importação." }));
+    try {
+      setActionError(null);
+      setImportSummary(null);
+      setImportState((prev) => ({ ...prev, status: "idle", message: "Analisando arquivo..." }));
+      const isCsv = file.name.toLowerCase().endsWith(".csv");
+      if (isCsv) {
+        const text = await file.text();
+        const normalized = text.replace(/^\ufeff/, "");
+        const firstLine = normalized.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+        const delimiter = firstLine.includes(";") ? ";" : ",";
+        const headers = parseCsvLine(firstLine, delimiter).map((h) => normalizeHeaderPt(h));
+        const hasEntity = headers.includes("entity");
+        const hasCodigoProduto = headers.includes(normalizeHeaderPt("Código do Produto"));
+        if (hasEntity) {
+          setImportMode("multi");
+          const preview = parseCsvImport(normalized);
+          setImportPtPreview(null);
+          setImportPreview(preview);
+          if (preview.errors.length > 0) {
+            setImportState((prev) => ({ ...prev, status: "error", message: "Erros encontrados no arquivo." }));
+          } else {
+            setImportState((prev) => ({ ...prev, status: "idle", message: "Arquivo pronto para importação." }));
+          }
+          return;
         }
+        if (hasCodigoProduto) {
+          setImportMode("produtos_pt");
+          const preview = parseProductsPtCsv(normalized);
+          setImportPreview(null);
+          setImportPtPreview(preview);
+          if (preview.errors.length > 0) {
+            setImportState((prev) => ({ ...prev, status: "error", message: "Erros encontrados no arquivo." }));
+          } else {
+            setImportState((prev) => ({ ...prev, status: "idle", message: "Arquivo pronto para importação." }));
+          }
+          return;
+        }
+        setImportPtPreview(null);
+        setImportPreview(null);
+        setImportState((prev) => ({ ...prev, status: "error", message: "CSV inválido: cabeçalho não reconhecido." }));
         return;
       }
-      if (hasCodigoProduto) {
+
+      const buffer = await file.arrayBuffer();
+      const detectedMode = detectXlsxImportMode(buffer);
+      const targetMode = detectedMode ?? importMode;
+      if (targetMode === "produtos_pt") {
         setImportMode("produtos_pt");
-        const preview = parseProductsPtCsv(normalized);
+        const preview = parseProductsPtXlsx(buffer);
         setImportPreview(null);
         setImportPtPreview(preview);
         if (preview.errors.length > 0) {
@@ -793,29 +865,24 @@ export function Products() {
         }
         return;
       }
+
+      setImportMode("multi");
+      const preview = parseXlsxImport(buffer);
       setImportPtPreview(null);
-      setImportPreview(null);
-      setImportState((prev) => ({ ...prev, status: "error", message: "CSV inválido: cabeçalho não reconhecido." }));
-      return;
-    }
-    if (importMode === "produtos_pt") {
-      const preview = await readImportProductsPt(file);
-      setImportPreview(null);
-      setImportPtPreview(preview);
+      setImportPreview(preview);
       if (preview.errors.length > 0) {
         setImportState((prev) => ({ ...prev, status: "error", message: "Erros encontrados no arquivo." }));
       } else {
         setImportState((prev) => ({ ...prev, status: "idle", message: "Arquivo pronto para importação." }));
       }
-      return;
-    }
-    const preview = await readImportFile(file);
-    setImportPtPreview(null);
-    setImportPreview(preview);
-    if (preview.errors.length > 0) {
-      setImportState((prev) => ({ ...prev, status: "error", message: "Erros encontrados no arquivo." }));
-    } else {
-      setImportState((prev) => ({ ...prev, status: "idle", message: "Arquivo pronto para importação." }));
+    } catch (error: any) {
+      setImportPtPreview(null);
+      setImportPreview(null);
+      setImportState((prev) => ({
+        ...prev,
+        status: "error",
+        message: error?.message ?? "Falha ao analisar o arquivo. Verifique o formato e tente novamente.",
+      }));
     }
   };
   const handleImportConfirm = async () => {
@@ -852,6 +919,7 @@ export function Products() {
                 name: supplier.name,
                 email: supplier.email,
                 phone: supplier.phone,
+                notes: supplier.notes ?? null,
                 status: supplier.status ?? "ATIVO",
               })
               .select("id")
@@ -1491,6 +1559,38 @@ export function Products() {
               </select>
             </div>
           </div>
+          {!productForm.id && (
+            <div className="space-y-3">
+              <p className="text-xs uppercase text-steel">Variação inicial do produto</p>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="text-xs uppercase text-steel">SKU inicial (opcional)</label>
+                  <Input
+                    value={productForm.initial_sku}
+                    onChange={(event) => setProductForm({ ...productForm, initial_sku: event.target.value })}
+                    placeholder="Se vazio, será gerado automaticamente"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs uppercase text-steel">Cor da peça</label>
+                  <Input
+                    value={productForm.initial_color}
+                    onChange={(event) => setProductForm({ ...productForm, initial_color: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs uppercase text-steel">Tamanho da peça</label>
+                  <Input
+                    value={productForm.initial_size}
+                    onChange={(event) => setProductForm({ ...productForm, initial_size: event.target.value })}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-steel">
+                Ao salvar, o sistema cria automaticamente o primeiro SKU do produto com a cor e o tamanho informados.
+              </p>
+            </div>
+          )}
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setProductModalOpen(false)}>
               Cancelar

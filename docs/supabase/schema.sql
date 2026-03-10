@@ -83,6 +83,7 @@ create table if not exists public.suppliers (
   name text not null,
   email text,
   phone text,
+  notes text,
   status text check (status in ('ATIVO','INATIVO')) default 'ATIVO',
   created_at timestamp default now(),
   updated_at timestamp default now()
