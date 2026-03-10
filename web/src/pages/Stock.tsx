@@ -21,6 +21,7 @@ export function Stock() {
     id: "",
     cost: "",
     price: "",
+    stock_current: "0",
     stock_min: "",
     status: "ATIVO",
   });
@@ -53,6 +54,7 @@ export function Stock() {
       id: row.sku_id,
       cost: row.cost?.toString() ?? "",
       price: row.price?.toString() ?? "",
+      stock_current: row.stock_current?.toString() ?? "0",
       stock_min: row.stock_min?.toString() ?? "",
       status: row.status ?? "ATIVO",
     });
@@ -61,6 +63,22 @@ export function Stock() {
 
   const saveSku = async () => {
     if (!canManageCatalog) return;
+    setError(null);
+    const desiredStock = Number(skuForm.stock_current);
+    if (!Number.isInteger(desiredStock) || desiredStock < 0) {
+      setError("Estoque atual deve ser um número inteiro maior ou igual a zero.");
+      return;
+    }
+    const { data: currentSku, error: currentError } = await supabase
+      .from("product_skus")
+      .select("stock_current")
+      .eq("id", skuForm.id)
+      .single();
+    if (currentError) {
+      setError("Não foi possível consultar o estoque atual do SKU.");
+      return;
+    }
+    const currentStock = Number(currentSku.stock_current) || 0;
     const payload = {
       cost: safeParseNumber(skuForm.cost),
       price: parseNumberOrNull(skuForm.price) ?? null,
@@ -71,6 +89,21 @@ export function Stock() {
     if (updateError) {
       setError("Não foi possível salvar o SKU.");
       return;
+    }
+    const stockDiff = desiredStock - currentStock;
+    if (stockDiff !== 0) {
+      const { error: movementError } = await supabase.from("stock_movements").insert({
+        sku_id: skuForm.id,
+        type: "AJUSTE",
+        quantity: Math.abs(stockDiff),
+        signed_quantity: stockDiff,
+        reason: "AJUSTE_MANUAL",
+        notes: "Ajuste realizado na tela de estoque.",
+      });
+      if (movementError) {
+        setError("SKU salvo, mas não foi possível ajustar o estoque atual.");
+        return;
+      }
     }
     setSkuModalOpen(false);
     await load();
@@ -219,6 +252,16 @@ export function Stock() {
               <Input value={skuForm.price} onChange={(event) => setSkuForm({ ...skuForm, price: event.target.value })} placeholder="Opcional" />
             </div>
             <div>
+              <label className="text-xs uppercase text-steel">Estoque atual</label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={skuForm.stock_current}
+                onChange={(event) => setSkuForm({ ...skuForm, stock_current: event.target.value })}
+              />
+            </div>
+            <div>
               <label className="text-xs uppercase text-steel">Estoque mínimo</label>
               <Input value={skuForm.stock_min} onChange={(event) => setSkuForm({ ...skuForm, stock_min: event.target.value })} />
             </div>
@@ -230,6 +273,9 @@ export function Stock() {
               </select>
             </div>
           </div>
+          <p className="text-xs text-steel">
+            Alterar o estoque atual gera automaticamente uma movimentação de ajuste para manter o histórico.
+          </p>
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setSkuModalOpen(false)}>
               Cancelar

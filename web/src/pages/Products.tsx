@@ -503,6 +503,7 @@ export function Products() {
     size: "",
     cost: "",
     price: "",
+    stock_current: "0",
     stock_min: "",
     status: "ATIVO",
   });
@@ -633,6 +634,7 @@ export function Products() {
       size: "",
       cost: "",
       price: "",
+      stock_current: "0",
       stock_min: "",
       status: "ATIVO",
     });
@@ -648,6 +650,7 @@ export function Products() {
       size: sku.size ?? "",
       cost: sku.cost?.toString() ?? "",
       price: sku.price?.toString() ?? "",
+      stock_current: sku.stock_current?.toString() ?? "0",
       stock_min: sku.stock_min?.toString() ?? "",
       status: sku.status ?? "ATIVO",
     });
@@ -775,6 +778,25 @@ export function Products() {
       setActionError("Preencha SKU, produto, cor e tamanho.");
       return;
     }
+    const desiredStock = Number(skuForm.stock_current);
+    if (!Number.isInteger(desiredStock) || desiredStock < 0) {
+      setActionError("Estoque atual deve ser um número inteiro maior ou igual a zero.");
+      return;
+    }
+    let skuId = skuForm.id;
+    let currentStock = 0;
+    if (skuForm.id) {
+      const { data: currentSku, error: currentError } = await supabase
+        .from("product_skus")
+        .select("stock_current")
+        .eq("id", skuForm.id)
+        .single();
+      if (currentError) {
+        setActionError("Não foi possível consultar o estoque atual do SKU.");
+        return;
+      }
+      currentStock = Number(currentSku.stock_current) || 0;
+    }
     const payload = {
       product_id: skuForm.product_id,
       sku: skuForm.sku,
@@ -787,10 +809,33 @@ export function Products() {
     };
     const response = skuForm.id
       ? await supabase.from("product_skus").update(payload).eq("id", skuForm.id)
-      : await supabase.from("product_skus").insert(payload);
+      : await supabase.from("product_skus").insert(payload).select("id, stock_current").single();
     if (response.error) {
       setActionError("Não foi possível salvar o SKU.");
       return;
+    }
+    if (!skuForm.id) {
+      skuId = response.data?.id ?? "";
+      currentStock = Number(response.data?.stock_current) || 0;
+    }
+    if (!skuId) {
+      setActionError("SKU salvo, mas não foi possível identificar o registro para ajuste de estoque.");
+      return;
+    }
+    const stockDiff = desiredStock - currentStock;
+    if (stockDiff !== 0) {
+      const { error: movementError } = await supabase.from("stock_movements").insert({
+        sku_id: skuId,
+        type: "AJUSTE",
+        quantity: Math.abs(stockDiff),
+        signed_quantity: stockDiff,
+        reason: "AJUSTE_MANUAL",
+        notes: "Ajuste realizado na edição de SKU.",
+      });
+      if (movementError) {
+        setActionError("SKU salvo, mas não foi possível ajustar o estoque atual.");
+        return;
+      }
     }
     setSkuModalOpen(false);
     await loadData();
@@ -1638,6 +1683,16 @@ export function Products() {
               <Input value={skuForm.price} onChange={(event) => setSkuForm({ ...skuForm, price: event.target.value })} placeholder="Opcional" />
             </div>
             <div>
+              <label className="text-xs uppercase text-steel">Estoque atual</label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={skuForm.stock_current}
+                onChange={(event) => setSkuForm({ ...skuForm, stock_current: event.target.value })}
+              />
+            </div>
+            <div>
               <label className="text-xs uppercase text-steel">Estoque mínimo</label>
               <Input value={skuForm.stock_min} onChange={(event) => setSkuForm({ ...skuForm, stock_min: event.target.value })} />
             </div>
@@ -1649,6 +1704,9 @@ export function Products() {
               </select>
             </div>
           </div>
+          <p className="text-xs text-steel">
+            Alterar o estoque atual gera automaticamente uma movimentação de ajuste para manter o histórico.
+          </p>
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setSkuModalOpen(false)}>
               Cancelar
