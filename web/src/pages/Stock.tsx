@@ -52,8 +52,8 @@ export function Stock() {
   const openEditSku = (row: any) => {
     setSkuForm({
       id: row.sku_id,
-      cost: row.cost?.toString() ?? "",
-      price: row.price?.toString() ?? "",
+      cost: row.cost === null || row.cost === undefined ? "" : String(row.cost).replace(".", ","),
+      price: row.price === null || row.price === undefined ? "" : String(row.price).replace(".", ","),
       stock_current: row.stock_current?.toString() ?? "0",
       stock_min: row.stock_min?.toString() ?? "",
       status: row.status ?? "ATIVO",
