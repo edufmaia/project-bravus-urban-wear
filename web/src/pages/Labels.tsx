@@ -20,12 +20,15 @@ import { supabase } from "../lib/supabaseClient";
 import { formatDate } from "../lib/utils";
 
 type ProductRelation = {
+  id: string | null;
   code: string | null;
   name: string | null;
+  category: string | null;
 };
 
 type ProductSkuSearchRow = {
   id: string;
+  product_id: string | null;
   sku: string | null;
   color: string | null;
   size: string | null;
@@ -84,6 +87,7 @@ export function Labels() {
   const [historyDisabledReason, setHistoryDisabledReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [productSequenceById, setProductSequenceById] = useState<Record<string, number>>({});
   const searchTerm = query.trim();
 
   const loadHistory = async () => {
@@ -109,8 +113,24 @@ export function Labels() {
     setHistoryRows((data ?? []) as LabelPrintJobRow[]);
   };
 
+  const loadProductSequence = async () => {
+    const { data, error: loadError } = await supabase
+      .from("products")
+      .select("id, created_at")
+      .order("created_at", { ascending: true });
+    if (loadError) return;
+    const map: Record<string, number> = {};
+    (data ?? []).forEach((row, index) => {
+      map[row.id] = index + 1;
+    });
+    setProductSequenceById(map);
+  };
+
   useEffect(() => {
-    void Promise.resolve().then(() => loadHistory());
+    void Promise.resolve().then(() => {
+      loadHistory();
+      loadProductSequence();
+    });
   }, []);
 
   useEffect(() => {
@@ -121,7 +141,7 @@ export function Labels() {
       setSearchLoading(true);
       const { data, error: searchError } = await supabase
         .from("product_skus")
-        .select("id, sku, color, size, status, products(name, code)")
+        .select("id, product_id, sku, color, size, status, products(id, name, code, category)")
         .eq("status", "ATIVO")
         .order("created_at", { ascending: false })
         .limit(300);
@@ -138,13 +158,19 @@ export function Labels() {
       const rows = ((data ?? []) as ProductSkuSearchRow[])
         .map((row) => {
           const product = firstRelation(row.products);
+          const productSequence =
+            (row.product_id ? productSequenceById[row.product_id] : undefined) ??
+            (product?.id ? productSequenceById[product.id] : undefined) ??
+            0;
           return {
             sku_id: row.id,
             sku: row.sku ?? "",
             product_code: product?.code ?? "",
             product_name: product?.name ?? "",
+            category: product?.category ?? "",
             color: row.color ?? "",
             size: row.size ?? "",
+            product_sequence: productSequence,
             status: row.status ?? "ATIVO",
           };
         })
@@ -162,7 +188,7 @@ export function Labels() {
       active = false;
       clearTimeout(timeout);
     };
-  }, [searchTerm]);
+  }, [searchTerm, productSequenceById]);
 
   const totalCopies = useMemo(
     () => selectedItems.reduce((sum, item) => sum + clampCopies(item.copies), 0),
@@ -186,8 +212,10 @@ export function Labels() {
             sku: row.sku,
             product_code: row.product_code,
             product_name: row.product_name,
+            category: row.category,
             color: row.color,
             size: row.size,
+            product_sequence: row.product_sequence,
             copies: 1,
           },
         ];

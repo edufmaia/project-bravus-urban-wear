@@ -43,6 +43,31 @@ export function LabelSheet({
               background: "#fff",
             }}
           >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "2mm" }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "2.4mm",
+                  fontWeight: 900,
+                  letterSpacing: "0.14em",
+                  lineHeight: 1,
+                }}
+              >
+                BRAVUS
+              </p>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "1.9mm",
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  lineHeight: 1,
+                }}
+              >
+                URBAN WEAR
+              </p>
+            </div>
+
             <div style={{ display: "flex", justifyContent: "space-between", gap: "2mm" }}>
               <p
                 style={{
@@ -77,18 +102,21 @@ export function LabelSheet({
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.6mm" }}>
               <div style={{ height: "8mm" }}>
-                <BarcodeSvg value={label.sku} />
+                <BarcodeSvg value={label.barcode_value} />
               </div>
               <p
                 style={{
                   margin: 0,
-                  fontSize: "2.4mm",
+                  fontSize: "1.8mm",
                   textAlign: "center",
-                  letterSpacing: "0.08em",
+                  letterSpacing: "0.04em",
                   fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
               >
-                {label.sku}
+                {label.barcode_value}
               </p>
             </div>
           </article>

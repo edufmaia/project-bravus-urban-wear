@@ -16,13 +16,16 @@ export type LabelSkuItem = {
   sku: string;
   product_code: string;
   product_name: string;
+  category?: string;
   color: string;
   size: string;
+  product_sequence?: number;
   copies: number;
 };
 
 export type ExpandedLabel = Omit<LabelSkuItem, "copies"> & {
   sequence: number;
+  barcode_value: string;
 };
 
 export type LabelPrintPayload = {
@@ -74,6 +77,28 @@ export const clampCopies = (value: number) => {
 export const getTemplateById = (templateId: LabelTemplateId) =>
   LABEL_TEMPLATES.find((template) => template.id === templateId) ?? LABEL_TEMPLATES[0];
 
+const normalizeBarcodeSegment = (value: string, fallback: string) => {
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]+/g, "");
+  return normalized || fallback;
+};
+
+export const buildBravusBarcode = (item: Pick<LabelSkuItem, "product_code" | "category" | "color" | "size" | "product_sequence">) => {
+  const productCode = normalizeBarcodeSegment(item.product_code ?? "", "SEMCOD");
+  const category = normalizeBarcodeSegment(item.category ?? "", "SEMCAT");
+  const color = normalizeBarcodeSegment(item.color ?? "", "SEMCOR");
+  const size = normalizeBarcodeSegment(item.size ?? "", "SEMTAM");
+  const sequenceCode =
+    Number.isFinite(Number(item.product_sequence)) && Number(item.product_sequence) > 0
+      ? String(Math.floor(Number(item.product_sequence)))
+      : "0";
+  return `BRV-${productCode}-${category}-${color}-${sequenceCode}-${size}`;
+};
+
 export function expandLabels(items: LabelSkuItem[]): ExpandedLabel[] {
   const result: ExpandedLabel[] = [];
   let sequence = 1;
@@ -85,9 +110,12 @@ export function expandLabels(items: LabelSkuItem[]): ExpandedLabel[] {
         sku: item.sku,
         product_code: item.product_code,
         product_name: item.product_name,
+        category: item.category ?? "",
         color: item.color,
         size: item.size,
+        product_sequence: item.product_sequence ?? 0,
         sequence,
+        barcode_value: buildBravusBarcode(item),
       });
       sequence += 1;
     }
@@ -104,8 +132,12 @@ export function sanitizePayload(payload: LabelPrintPayload): LabelPrintPayload {
       sku: item.sku,
       product_code: item.product_code,
       product_name: item.product_name,
+      category: typeof item.category === "string" ? item.category : "",
       color: item.color,
       size: item.size,
+      product_sequence: Number.isFinite(Number(item.product_sequence))
+        ? Math.max(0, Math.floor(Number(item.product_sequence)))
+        : 0,
       copies: clampCopies(item.copies),
     })),
   };
@@ -124,8 +156,10 @@ export function isLabelPrintPayload(value: unknown): value is LabelPrintPayload 
       typeof row.sku === "string" &&
       typeof row.product_code === "string" &&
       typeof row.product_name === "string" &&
+      (row.category === undefined || typeof row.category === "string") &&
       typeof row.color === "string" &&
       typeof row.size === "string" &&
+      (row.product_sequence === undefined || typeof row.product_sequence === "number") &&
       typeof row.copies === "number"
     );
   });
