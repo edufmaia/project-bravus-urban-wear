@@ -62,13 +62,127 @@ type ImportPreview = {
 };
 
 const normalizeKey = (value: string) => value.trim().toLowerCase().replace(/\s+/g, "_");
+const normalizeToken = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+const ACTIVE_STATUS_TOKENS = new Set(["ativo", "active", "em estoque", "disponivel", "sim", "1"]);
+const INACTIVE_STATUS_TOKENS = new Set([
+  "inativo",
+  "inactive",
+  "fora de estoque",
+  "sem estoque",
+  "esgotado",
+  "nao",
+  "0",
+]);
+const normalizeCatalogStatus = (value?: string | null) => {
+  const normalized = normalizeToken(value ?? "");
+  if (!normalized) return "ATIVO";
+  if (INACTIVE_STATUS_TOKENS.has(normalized)) return "INATIVO";
+  if (ACTIVE_STATUS_TOKENS.has(normalized)) return "ATIVO";
+  return "ATIVO";
+};
+const normalizeHeaderMulti = (value: string) => normalizeToken(value).replace(/\s+/g, "_");
+const multiHeaderAliases = new Map<string, string>([
+  ["entity", "entity"],
+  ["entidade", "entity"],
+  ["name", "name"],
+  ["nome", "name"],
+  ["email", "email"],
+  ["e_mail", "email"],
+  ["telefone", "phone"],
+  ["phone", "phone"],
+  ["notes", "notes"],
+  ["observacoes", "notes"],
+  ["status", "status"],
+  ["code", "code"],
+  ["codigo", "code"],
+  ["codigo_do_produto", "code"],
+  ["product_code", "product_code"],
+  ["codigo_produto", "product_code"],
+  ["name_product", "name"],
+  ["nome_do_produto", "name"],
+  ["description", "description"],
+  ["descricao", "description"],
+  ["category", "category"],
+  ["categoria", "category"],
+  ["collection", "collection"],
+  ["colecao", "collection"],
+  ["supplier_name", "supplier_name"],
+  ["supplier", "supplier_name"],
+  ["fornecedor", "supplier_name"],
+  ["image_url", "image_url"],
+  ["url_da_imagem", "image_url"],
+  ["sku", "sku"],
+  ["color", "color"],
+  ["cor", "color"],
+  ["size", "size"],
+  ["tamanho", "size"],
+  ["cost", "cost"],
+  ["custo", "cost"],
+  ["price", "price"],
+  ["preco", "price"],
+  ["stock_min", "stock_min"],
+  ["estoque_minimo", "stock_min"],
+  ["type", "type"],
+  ["tipo", "type"],
+  ["quantity", "quantity"],
+  ["quantidade", "quantity"],
+  ["reason", "reason"],
+  ["motivo", "reason"],
+  ["occurred_at", "occurred_at"],
+  ["data_da_ocorrencia", "occurred_at"],
+]);
+const multiEntityAliases = new Map<string, (typeof entityOrder)[number]>([
+  ["suppliers", "suppliers"],
+  ["supplier", "suppliers"],
+  ["fornecedores", "suppliers"],
+  ["fornecedor", "suppliers"],
+  ["products", "products"],
+  ["product", "products"],
+  ["produtos", "products"],
+  ["produto", "products"],
+  ["product_skus", "product_skus"],
+  ["product_sku", "product_skus"],
+  ["skus", "product_skus"],
+  ["sku", "product_skus"],
+  ["stock_movements", "stock_movements"],
+  ["stock_movement", "stock_movements"],
+  ["movimentos", "stock_movements"],
+  ["movimento", "stock_movements"],
+  ["movimentacoes", "stock_movements"],
+  ["movimentacao", "stock_movements"],
+]);
+const toCanonicalMultiKey = (value: string) => {
+  const normalized = normalizeHeaderMulti(value);
+  return multiHeaderAliases.get(normalized) ?? normalized;
+};
+const toCanonicalMultiRecord = (row: Record<string, unknown>) => {
+  const result: Record<string, string> = {};
+  Object.entries(row).forEach(([rawKey, rawValue]) => {
+    const key = toCanonicalMultiKey(rawKey);
+    result[key] =
+      typeof rawValue === "string"
+        ? rawValue.trim()
+        : rawValue === null || rawValue === undefined
+          ? ""
+          : String(rawValue).trim();
+  });
+  return result;
+};
+const toCanonicalEntity = (value: string) => multiEntityAliases.get(normalizeHeaderMulti(value)) ?? null;
 
 const toSupplierRow = (record: Record<string, string>): SupplierRow => ({
   name: record.name ?? "",
   email: record.email || undefined,
   phone: record.phone || undefined,
   notes: record.notes || undefined,
-  status: record.status || "ATIVO",
+  status: normalizeCatalogStatus(record.status),
 });
 
 const toProductRow = (record: Record<string, string>): ProductRow => ({
@@ -78,7 +192,7 @@ const toProductRow = (record: Record<string, string>): ProductRow => ({
   category: record.category ?? "",
   collection: record.collection || undefined,
   supplier_name: record.supplier_name ?? "",
-  status: record.status || "ATIVO",
+  status: normalizeCatalogStatus(record.status),
   image_url: record.image_url || undefined,
 });
 
@@ -90,7 +204,7 @@ const toSkuRow = (record: Record<string, string>): SkuRow => ({
   cost: safeParseNumber(record.cost),
   price: parseNumberOrNull(record.price),
   stock_min: Number(record.stock_min) || 0,
-  status: record.status || "ATIVO",
+  status: normalizeCatalogStatus(record.status),
 });
 
 const toMovementRow = (record: Record<string, string>): MovementRow => ({
@@ -182,10 +296,12 @@ const parseCsvImport = (text: string): ImportPreview => {
     preview.errors.push("CSV vazio.");
     return preview;
   }
-  const headers = parseCsvLine(headerLine, delimiter).map((h) => normalizeKey(h.replace(/^\ufeff/, "").trim()));
+  const headers = parseCsvLine(headerLine, delimiter).map((h) =>
+    toCanonicalMultiKey(h.replace(/^\ufeff/, "").trim())
+  );
   const entityIndex = headers.indexOf("entity");
   if (entityIndex === -1) {
-    preview.errors.push("CSV precisa da coluna 'entity'.");
+    preview.errors.push("CSV precisa da coluna 'entity' (ou 'entidade').");
     return preview;
   }
   let lastEntityIndex = 0;
@@ -195,8 +311,8 @@ const parseCsvImport = (text: string): ImportPreview => {
     headers.forEach((key, idx) => {
       record[key] = values[idx] ?? "";
     });
-    const entity = normalizeKey(record.entity || "");
-    const orderIndex = entityOrder.indexOf(entity as any);
+    const entity = toCanonicalEntity(record.entity || "");
+    const orderIndex = entity ? entityOrder.indexOf(entity) : -1;
     if (orderIndex === -1) {
       preview.errors.push(`Linha ${index + 1}: entity inválida (${record.entity}).`);
       return;
@@ -231,7 +347,9 @@ const parseXlsxImport = (buffer: ArrayBuffer): ImportPreview => {
   const getSheet = (entity: typeof entityOrder[number]) => {
     const sheetName = workbook.SheetNames.find((name) => normalizeKey(name) === entity);
     if (!sheetName) return [];
-    return XLSX.utils.sheet_to_json<Record<string, string>>(workbook.Sheets[sheetName], { defval: "" });
+    return XLSX.utils
+      .sheet_to_json<Record<string, unknown>>(workbook.Sheets[sheetName], { defval: "" })
+      .map((row) => toCanonicalMultiRecord(row));
   };
   const suppliers = getSheet("suppliers");
   const products = getSheet("products");
@@ -277,13 +395,7 @@ const productsPtColumns = [
   "Fornecedor",
 ];
 
-const normalizeHeaderPt = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ");
+const normalizeHeaderPt = (value: string) => normalizeToken(value);
 
 const productsPtHeaderMap = new Map([
   ["codigo do produto", "code"],
@@ -328,14 +440,7 @@ const buildProductsPtPreview = (raw: Record<string, string>[]): ProductPtPreview
     });
     const isEmptyRow = Object.values(record).every((value) => !value || !value.trim());
     if (isEmptyRow) return;
-    const rawStatus = record.status?.trim() ?? "";
-    const normalizedStatus = normalizeHeaderPt(rawStatus);
-    const status =
-      normalizedStatus === "active"
-        ? "ATIVO"
-        : normalizedStatus === "inactive"
-          ? "INATIVO"
-          : rawStatus || "ATIVO";
+    const status = normalizeCatalogStatus(record.status);
     const code = record.code?.trim() ?? "";
     const name = record.name?.trim() ?? "";
     const category = record.category?.trim() ?? "";
@@ -965,7 +1070,7 @@ export function Products() {
                 email: supplier.email,
                 phone: supplier.phone,
                 notes: supplier.notes ?? null,
-                status: supplier.status ?? "ATIVO",
+                status: normalizeCatalogStatus(supplier.status),
               })
               .select("id")
               .single();
@@ -1016,7 +1121,7 @@ export function Products() {
               category: product.category,
               collection: product.collection ?? null,
               supplier_id: supplierId,
-              status: product.status ?? "ATIVO",
+              status: normalizeCatalogStatus(product.status),
               image_url: null,
             })
             .select("id, code, name")
@@ -1051,7 +1156,7 @@ export function Products() {
                 category: product.category,
                 collection: product.collection ?? null,
                 supplier_id: supplierId,
-                status: product.status ?? "ATIVO",
+                status: normalizeCatalogStatus(product.status),
                 image_url: product.image_url ?? null,
               })
               .select("id, code, name")
@@ -1081,7 +1186,7 @@ export function Products() {
                 cost: sku.cost,
                 price: sku.price,
                 stock_min: sku.stock_min,
-                status: sku.status ?? "ATIVO",
+                status: normalizeCatalogStatus(sku.status),
               })
               .select("id")
               .single();
@@ -1192,10 +1297,60 @@ export function Products() {
   };
 
   const handleExportTemplatePt = () => {
-    const worksheet = XLSX.utils.aoa_to_sheet([productsPtColumns]);
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      productsPtColumns,
+      [
+        "BRV-001",
+        "Camiseta Bravus",
+        "Malha premium",
+        "Camisetas",
+        "ATIVO",
+        "Colecao Verao 25",
+        "Fornecedor A",
+      ],
+    ]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
     XLSX.writeFile(workbook, "bravus-urban-wear-modelo-produtos.xlsx");
+  };
+
+  const handleExportTemplateMulti = () => {
+    const workbook = XLSX.utils.book_new();
+
+    const suppliersSheet = XLSX.utils.aoa_to_sheet([
+      ["Nome", "E-mail", "Telefone", "Observações", "Status"],
+      ["Fornecedor A", "fornecedor.a@exemplo.com", "(11) 99999-0000", "Prazo médio 7 dias", "ATIVO"],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, suppliersSheet, "suppliers");
+
+    const productsSheet = XLSX.utils.aoa_to_sheet([
+      [
+        "Código do Produto",
+        "Nome do Produto",
+        "Descrição",
+        "Categoria",
+        "Coleção",
+        "Fornecedor",
+        "Status",
+        "URL da Imagem",
+      ],
+      ["BRV-001", "Camiseta Bravus", "Malha premium", "Camisetas", "Coleção Verão 25", "Fornecedor A", "ATIVO", ""],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, productsSheet, "products");
+
+    const skusSheet = XLSX.utils.aoa_to_sheet([
+      ["Código do Produto", "SKU", "Cor", "Tamanho", "Custo", "Preço", "Estoque Mínimo", "Status"],
+      ["BRV-001", "BRV-001-PRETO-M", "Preto", "M", 49.9, 119.9, 5, "ATIVO"],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, skusSheet, "product_skus");
+
+    const movementsSheet = XLSX.utils.aoa_to_sheet([
+      ["SKU", "Tipo", "Quantidade", "Motivo", "Observações", "Data da Ocorrência"],
+      ["BRV-001-PRETO-M", "ENTRADA", 20, "ESTOQUE INICIAL", "Carga inicial de importação", ""],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, movementsSheet, "stock_movements");
+
+    XLSX.writeFile(workbook, "bravus-urban-wear-modelo-multi-abas.xlsx");
   };
 
   const totalSkus = useMemo(() => skus.length, [skus]);
@@ -1225,7 +1380,10 @@ export function Products() {
             Importar CSV/XLSX
           </Button>
           <Button variant="ghost" onClick={handleExportTemplatePt}>
-            Baixar modelo XLSX
+            Modelo Produtos (PT-BR)
+          </Button>
+          <Button variant="ghost" onClick={handleExportTemplateMulti}>
+            Modelo Multi-abas
           </Button>
           <Button variant="outline" onClick={handleExportCsv}>
             Exportar CSV
