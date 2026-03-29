@@ -42,8 +42,10 @@ export function Login() {
     <div className="flex min-h-screen items-center justify-center p-6">
       <Card className="w-full max-w-md p-8">
         <div className="text-center">
-          <p className="font-display text-4xl">Bravus Urban Wear</p>
-          <p className="text-sm text-steel">Acesse sua operação de estoque</p>
+          <div className="flex justify-center">
+            <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-12 w-auto" />
+          </div>
+          <p className="mt-2 text-sm text-steel">Acesse sua operação de estoque</p>
         </div>
         <form className="mt-8 space-y-4" onSubmit={onSubmit}>
           <div>
