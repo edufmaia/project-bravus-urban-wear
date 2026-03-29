@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { Badge } from "../components/ui/Badge";
@@ -34,6 +34,19 @@ type PaymentLine = {
   notes: string;
 };
 
+const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = [
+  { id: "PM_CASH", code: "CASH", name: "Dinheiro", type: "CASH", active: true },
+  { id: "PM_PIX", code: "PIX", name: "Pix", type: "PIX", active: true },
+  { id: "PM_DEBIT", code: "DEBIT", name: "Débito", type: "CARD_DEBIT", active: true },
+  { id: "PM_CREDIT", code: "CREDIT", name: "Crédito", type: "CARD_CREDIT", active: true },
+];
+
+const DEFAULT_CARD_BRANDS: CardBrand[] = [
+  { id: "BR_VISA", code: "VISA", name: "Visa", active: true },
+  { id: "BR_MASTERCARD", code: "MASTERCARD", name: "MasterCard", active: true },
+  { id: "BR_ELO", code: "ELO", name: "Elo", active: true },
+];
+
 const createPaymentLine = (): PaymentLine => ({
   id: crypto.randomUUID(),
   payment_method_id: "",
@@ -58,25 +71,43 @@ export function Checkout() {
   const [loadingData, setLoadingData] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
       setLoadingData(true);
-      const [{ data: methods, error: methodsError }, { data: brands, error: brandsError }] = await Promise.all([
+      const [{ data: methods, error: methodsError }, { data: brands, error: brandsError }] = await Promise.allSettled([
         supabase.from("payment_methods").select("id, code, name, type, active").eq("active", true).order("name"),
         supabase.from("card_brands").select("id, code, name, active").eq("active", true).order("name"),
-      ]);
-      setLoadingData(false);
-      if (methodsError || brandsError) {
-        setError("Não foi possível carregar métodos de pagamento.");
-        return;
+      ]).then((results) => {
+        const [m, b] = results;
+        return [
+          m.status === "fulfilled" ? m.value : { data: null, error: m.reason },
+          b.status === "fulfilled" ? b.value : { data: null, error: b.reason },
+        ] as const;
+      });
+
+      const methodsList = (methodsError ? [] : (methods ?? [])) as PaymentMethod[];
+      const brandsList = (brandsError ? [] : (brands ?? [])) as CardBrand[];
+      const fallback = methodsList.length === 0 || brandsList.length === 0;
+
+      if (fallback) {
+        setWarning("Usando métodos e bandeiras padrão. Configure no Supabase para evitar inconsistências.");
       }
-      setPaymentMethods((methods ?? []) as PaymentMethod[]);
-      setCardBrands((brands ?? []) as CardBrand[]);
-      if ((methods ?? []).length > 0) {
+
+      const finalMethods = methodsList.length ? methodsList : DEFAULT_PAYMENT_METHODS;
+      const finalBrands = brandsList.length ? brandsList : DEFAULT_CARD_BRANDS;
+
+      setPaymentMethods(finalMethods);
+      setCardBrands(finalBrands);
+      setLoadingData(false);
+
+      if (finalMethods.length > 0) {
         setPayments((current) =>
-          current.map((line, index) => (index === 0 ? { ...line, payment_method_id: methods![0].id } : line))
+          current.map((line, index) => (index === 0 ? { ...line, payment_method_id: finalMethods[0].id } : line))
         );
+      } else {
+        setError("Nenhum método de pagamento disponível.");
       }
     };
     loadData();
@@ -247,6 +278,7 @@ export function Checkout() {
       }
     >
       {error && <p className="text-sm text-ember">{error}</p>}
+      {warning && <p className="text-sm text-amber-700">{warning}</p>}
       {loadingData && <p className="text-sm text-steel">Carregando métodos de pagamento...</p>}
 
       <Card className="p-6">
@@ -383,3 +415,4 @@ export function Checkout() {
     </AppShell>
   );
 }
+

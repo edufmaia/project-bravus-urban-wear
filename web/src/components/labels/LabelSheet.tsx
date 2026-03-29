@@ -44,28 +44,11 @@ export function LabelSheet({
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "2mm" }}>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "2.4mm",
-                  fontWeight: 900,
-                  letterSpacing: "0.14em",
-                  lineHeight: 1,
-                }}
-              >
-                BRAVUS
-              </p>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "1.9mm",
-                  fontWeight: 700,
-                  letterSpacing: "0.12em",
-                  lineHeight: 1,
-                }}
-              >
-                URBAN WEAR
-              </p>
+              <img
+                src="/bravus-logo.png"
+                alt="Bravus Urban Wear"
+                style={{ height: "8mm", objectFit: "contain" }}
+              />
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: "2mm" }}>
