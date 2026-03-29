@@ -43,7 +43,7 @@ export function Login() {
       <Card className="w-full max-w-md p-8">
         <div className="text-center">
           <div className="flex justify-center">
-            <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-20 w-auto" />
+            <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-40 w-auto" />
           </div>
           <p className="mt-2 text-sm text-steel">Acesse sua operação de estoque</p>
         </div>
