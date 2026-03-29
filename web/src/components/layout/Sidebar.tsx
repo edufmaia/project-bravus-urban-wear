@@ -33,7 +33,7 @@ export function Sidebar() {
 
   return (
     <aside className="hidden w-64 flex-col gap-6 bg-white/80 p-6 shadow-soft backdrop-blur lg:flex">
-      <div>
+      <div className="flex flex-col items-center text-center">
         <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-40 w-auto" />
         <p className="mt-1 text-xs uppercase tracking-[0.3em] text-steel">Stock Control</p>
       </div>
