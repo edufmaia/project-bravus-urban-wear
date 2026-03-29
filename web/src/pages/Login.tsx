@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { z } from "zod";
 import { Button } from "../components/ui/Button";
@@ -43,7 +43,7 @@ export function Login() {
       <Card className="w-full max-w-md p-8">
         <div className="text-center">
           <div className="flex justify-center">
-            <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-16 w-auto" />
+            <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-20 w-auto" />
           </div>
           <p className="mt-2 text-sm text-steel">Acesse sua operação de estoque</p>
         </div>
@@ -83,3 +83,4 @@ export function Login() {
     </div>
   );
 }
+

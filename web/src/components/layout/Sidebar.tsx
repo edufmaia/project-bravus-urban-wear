@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+﻿import { NavLink } from "react-router-dom";
 import {
   LayoutGrid,
   Package,
@@ -34,7 +34,7 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 flex-col gap-6 bg-white/80 p-6 shadow-soft backdrop-blur lg:flex">
       <div>
-        <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-14 w-auto" />
+        <img src="/bravus-logo.png" alt="Bravus Urban Wear" className="h-20 w-auto" />
         <p className="mt-1 text-xs uppercase tracking-[0.3em] text-steel">Stock Control</p>
       </div>
       <nav className="flex flex-1 flex-col gap-2">
@@ -65,3 +65,4 @@ export function Sidebar() {
     </aside>
   );
 }
+
