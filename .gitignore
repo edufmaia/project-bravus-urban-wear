@@ -1,2 +1,5 @@
 .env
 .env.*
+
+# Git worktrees
+.worktrees/
