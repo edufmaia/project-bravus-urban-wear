@@ -8,6 +8,7 @@ import { Input } from "../components/ui/Input";
 import { formatCurrency } from "../lib/utils";
 import { supabase } from "../lib/supabaseClient";
 import { usePdvCart } from "../lib/pdvCart";
+import { CustomerSelector } from "../components/pdv/CustomerSelector";
 
 type SearchResultRow = {
   sku_id: string;
@@ -211,17 +212,24 @@ export function PDV() {
     <AppShell
       title="PDV"
       actions={
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" onClick={clearCart} disabled={!cart.items.length}>
             Limpar carrinho
           </Button>
-          <Button onClick={() => navigate("/checkout")} disabled={!cart.items.length}>
+          {cart.items.length > 0 && !cart.customerId && (
+            <p className="text-sm text-ember">Selecione um cliente para continuar.</p>
+          )}
+          <Button
+            onClick={() => navigate("/checkout")}
+            disabled={!cart.items.length || !cart.customerId}
+          >
             Ir para checkout
           </Button>
         </div>
       }
     >
       {error && <p className="text-sm text-ember">{error}</p>}
+      <CustomerSelector />
       <Card className="p-6">
         <p className="text-xs uppercase text-steel">Buscar SKU / código / produto</p>
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">

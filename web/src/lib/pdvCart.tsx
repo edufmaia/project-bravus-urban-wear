@@ -18,12 +18,18 @@ type CartState = {
   items: CartItem[];
   discountType: CartDiscountType;
   discountValue: number;
+  surchargeType: CartDiscountType;
+  surchargeValue: number;
   notes: string;
+  customerId: string | null;
+  customerName: string | null;
+  saleDate: string | null;
 };
 
 type CartTotals = {
   subtotal: number;
   discountAmount: number;
+  surchargeAmount: number;
   total: number;
   itemsCount: number;
 };
@@ -36,16 +42,24 @@ type PdvCartContextValue = {
   removeItem: (skuId: string) => void;
   clearCart: () => void;
   setDiscount: (type: CartDiscountType, value: number) => void;
+  setSurcharge: (type: CartDiscountType, value: number) => void;
   setNotes: (value: string) => void;
+  setCustomer: (id: string | null, name: string | null) => void;
+  setSaleDate: (date: string | null) => void;
 };
 
-const STORAGE_KEY = "bravus-urban-wear-pdv-cart-v1";
+const STORAGE_KEY = "bravus-urban-wear-pdv-cart-v2";
 
 const defaultCart: CartState = {
   items: [],
   discountType: "AMOUNT",
   discountValue: 0,
+  surchargeType: "AMOUNT",
+  surchargeValue: 0,
   notes: "",
+  customerId: null,
+  customerName: null,
+  saleDate: null,
 };
 
 const PdvCartContext = createContext<PdvCartContextValue | undefined>(undefined);
@@ -65,7 +79,12 @@ export function PdvCartProvider({ children }: { children: React.ReactNode }) {
         items: Array.isArray(parsed.items) ? parsed.items : [],
         discountType: parsed.discountType === "PERCENT" ? "PERCENT" : "AMOUNT",
         discountValue: normalizeMoney(Number(parsed.discountValue) || 0),
+        surchargeType: parsed.surchargeType === "PERCENT" ? "PERCENT" : "AMOUNT",
+        surchargeValue: normalizeMoney(Number(parsed.surchargeValue) || 0),
         notes: parsed.notes ?? "",
+        customerId: parsed.customerId ?? null,
+        customerName: parsed.customerName ?? null,
+        saleDate: parsed.saleDate ?? null,
       };
     } catch {
       return defaultCart;
@@ -140,10 +159,33 @@ export function PdvCartProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
+  const setSurcharge = (type: CartDiscountType, value: number) => {
+    setCart((current) => ({
+      ...current,
+      surchargeType: type,
+      surchargeValue: normalizeMoney(value),
+    }));
+  };
+
   const setNotes = (value: string) => {
     setCart((current) => ({
       ...current,
       notes: value,
+    }));
+  };
+
+  const setCustomer = (id: string | null, name: string | null) => {
+    setCart((current) => ({
+      ...current,
+      customerId: id,
+      customerName: name,
+    }));
+  };
+
+  const setSaleDate = (date: string | null) => {
+    setCart((current) => ({
+      ...current,
+      saleDate: date,
     }));
   };
 
@@ -156,11 +198,20 @@ export function PdvCartProvider({ children }: { children: React.ReactNode }) {
         ? subtotal * (Math.min(100, Math.max(0, cart.discountValue)) / 100)
         : cart.discountValue;
     const discountAmount = normalizeMoney(Math.min(subtotal, rawDiscount));
-    const total = normalizeMoney(Math.max(0, subtotal - discountAmount));
+
+    const afterDiscount = subtotal - discountAmount;
+    const rawSurcharge =
+      cart.surchargeType === "PERCENT"
+        ? afterDiscount * (Math.min(100, Math.max(0, cart.surchargeValue)) / 100)
+        : cart.surchargeValue;
+    const surchargeAmount = normalizeMoney(rawSurcharge);
+
+    const total = normalizeMoney(Math.max(0, afterDiscount + surchargeAmount));
     const itemsCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
     return {
       subtotal,
       discountAmount,
+      surchargeAmount,
       total,
       itemsCount,
     };
@@ -175,7 +226,10 @@ export function PdvCartProvider({ children }: { children: React.ReactNode }) {
       removeItem,
       clearCart,
       setDiscount,
+      setSurcharge,
       setNotes,
+      setCustomer,
+      setSaleDate,
     }),
     [cart, totals]
   );

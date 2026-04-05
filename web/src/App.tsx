@@ -16,6 +16,8 @@ import { Sales } from "./pages/Sales";
 import { SaleDetails } from "./pages/SaleDetails";
 import { Labels } from "./pages/Labels";
 import { LabelsPrint } from "./pages/LabelsPrint";
+import { Customers } from "./pages/Customers";
+import { Consignments } from "./pages/Consignments";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export function App() {
@@ -104,6 +106,22 @@ export function App() {
           element={
             <ProtectedRoute roles={["ADMIN", "GERENTE", "OPERADOR"]}>
               <LabelsPrint />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/clientes"
+          element={
+            <ProtectedRoute roles={["ADMIN", "GERENTE", "OPERADOR"]}>
+              <Customers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/consignados"
+          element={
+            <ProtectedRoute roles={["ADMIN", "GERENTE", "OPERADOR"]}>
+              <Consignments />
             </ProtectedRoute>
           }
         />

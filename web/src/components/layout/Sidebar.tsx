@@ -10,6 +10,8 @@ import {
   ShoppingCart,
   ReceiptText,
   Tag,
+  UserRoundPlus,
+  Clock,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../lib/auth";
@@ -21,6 +23,8 @@ const links = [
   { to: "/movimentacoes", label: "Movimentações", icon: ArrowLeftRight },
   { to: "/pdv", label: "PDV", icon: ShoppingCart, roles: ["ADMIN", "GERENTE", "OPERADOR"] },
   { to: "/vendas", label: "Vendas", icon: ReceiptText, roles: ["ADMIN", "GERENTE", "OPERADOR"] },
+  { to: "/clientes", label: "Clientes", icon: UserRoundPlus, roles: ["ADMIN", "GERENTE", "OPERADOR"] },
+  { to: "/consignados", label: "Consignados", icon: Clock, roles: ["ADMIN", "GERENTE", "OPERADOR"] },
   { to: "/labels", label: "Etiquetas", icon: Tag, roles: ["ADMIN", "GERENTE", "OPERADOR"] },
   { to: "/fornecedores", label: "Fornecedores", icon: Truck },
   { to: "/usuarios", label: "Usuários", icon: Users, roles: ["ADMIN", "GERENTE"] },

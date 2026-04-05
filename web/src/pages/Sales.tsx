@@ -8,6 +8,10 @@ import { Input } from "../components/ui/Input";
 import { supabase } from "../lib/supabaseClient";
 import { formatCurrency, formatDate } from "../lib/utils";
 
+type CustomerRelation = {
+  full_name: string | null;
+} | null;
+
 type SaleRow = {
   id: string;
   number: number;
@@ -15,7 +19,9 @@ type SaleRow = {
   total: number;
   paid_total: number;
   change_total: number;
+  sale_date: string | null;
   created_at: string;
+  customers: CustomerRelation;
 };
 
 export function Sales() {
@@ -30,7 +36,7 @@ export function Sales() {
       setLoading(true);
       const { data, error: loadError } = await supabase
         .from("sales")
-        .select("id, number, status, total, paid_total, change_total, created_at")
+        .select("id, number, status, total, paid_total, change_total, sale_date, created_at, customers(full_name)")
         .order("created_at", { ascending: false })
         .limit(300);
       setLoading(false);
@@ -38,16 +44,29 @@ export function Sales() {
         setError("Não foi possível carregar o histórico de vendas.");
         return;
       }
-      setSales((data ?? []) as SaleRow[]);
+      setSales((data ?? []) as unknown as SaleRow[]);
     };
     load();
   }, []);
 
   const filtered = useMemo(() => {
-    const term = search.trim();
+    const term = search.trim().toLowerCase();
     if (!term) return sales;
-    return sales.filter((sale) => sale.number.toString().includes(term));
+    return sales.filter((sale) => {
+      const customerName = Array.isArray(sale.customers)
+        ? (sale.customers[0]?.full_name ?? "")
+        : (sale.customers?.full_name ?? "");
+      return (
+        sale.number.toString().includes(term) ||
+        customerName.toLowerCase().includes(term)
+      );
+    });
   }, [sales, search]);
+
+  const getCustomerName = (sale: SaleRow) => {
+    if (Array.isArray(sale.customers)) return sale.customers[0]?.full_name ?? "—";
+    return sale.customers?.full_name ?? "—";
+  };
 
   return (
     <AppShell
@@ -64,7 +83,7 @@ export function Sales() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por número da venda"
+            placeholder="Buscar por número ou nome do cliente"
           />
           <Badge tone="neutral">{filtered.length} registros</Badge>
         </div>
@@ -79,7 +98,8 @@ export function Sales() {
               <thead className="text-xs uppercase text-steel">
                 <tr>
                   <th className="py-2">Número</th>
-                  <th>Data</th>
+                  <th>Data venda</th>
+                  <th>Cliente</th>
                   <th>Status</th>
                   <th>Total</th>
                   <th>Pago</th>
@@ -91,7 +111,8 @@ export function Sales() {
                 {filtered.map((sale) => (
                   <tr key={sale.id}>
                     <td className="py-3 font-semibold">#{sale.number}</td>
-                    <td>{formatDate(sale.created_at)}</td>
+                    <td>{sale.sale_date ? formatDate(sale.sale_date) : formatDate(sale.created_at)}</td>
+                    <td className="text-steel">{getCustomerName(sale)}</td>
                     <td>
                       <Badge
                         tone={
@@ -117,7 +138,7 @@ export function Sales() {
                 ))}
                 {!filtered.length && (
                   <tr>
-                    <td colSpan={7} className="py-6 text-center text-steel">
+                    <td colSpan={8} className="py-6 text-center text-steel">
                       Nenhuma venda encontrada.
                     </td>
                   </tr>

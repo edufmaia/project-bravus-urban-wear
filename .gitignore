@@ -3,3 +3,6 @@
 
 # Git worktrees
 .worktrees/
+
+# Claude Code local settings
+.claude/

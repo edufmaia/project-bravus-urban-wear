@@ -1,10 +1,11 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { SaleDatePicker } from "../components/pdv/SaleDatePicker";
 import { usePdvCart } from "../lib/pdvCart";
 import { supabase } from "../lib/supabaseClient";
 import { formatCurrency, safeParseNumber } from "../lib/utils";
@@ -13,7 +14,7 @@ type PaymentMethod = {
   id: string;
   code: string;
   name: string;
-  type: "CASH" | "CARD_CREDIT" | "CARD_DEBIT" | "PIX" | "OTHER";
+  type: "CASH" | "CARD_CREDIT" | "CARD_DEBIT" | "PIX" | "OTHER" | "CONSIGNADO";
   active: boolean;
 };
 
@@ -32,6 +33,7 @@ type PaymentLine = {
   installments: string;
   authorization_code: string;
   notes: string;
+  due_date: string;
 };
 
 const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = [
@@ -55,6 +57,7 @@ const createPaymentLine = (): PaymentLine => ({
   installments: "1",
   authorization_code: "",
   notes: "",
+  due_date: "",
 });
 
 const normalizeMoney = (value: number) => {
@@ -64,7 +67,7 @@ const normalizeMoney = (value: number) => {
 
 export function Checkout() {
   const navigate = useNavigate();
-  const { cart, totals, clearCart, setDiscount, setNotes } = usePdvCart();
+  const { cart, totals, clearCart, setDiscount, setSurcharge, setNotes, setSaleDate } = usePdvCart();
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [cardBrands, setCardBrands] = useState<CardBrand[]>([]);
   const [payments, setPayments] = useState<PaymentLine[]>([createPaymentLine()]);
@@ -157,6 +160,9 @@ export function Checkout() {
           next.card_brand_id = "";
           next.installments = "1";
         }
+        if (method?.type !== "CONSIGNADO") {
+          next.due_date = "";
+        }
         return next;
       })
     );
@@ -194,6 +200,14 @@ export function Checkout() {
       if ((line.method.type === "CARD_CREDIT" || line.method.type === "CARD_DEBIT") && !line.card_brand_id) {
         return "Bandeira é obrigatória para cartão.";
       }
+      if (line.method.type === "CONSIGNADO") {
+        if (!cart.customerId) {
+          return "Consignado requer um cliente selecionado. Volte ao PDV e selecione um cliente.";
+        }
+        if (!line.due_date) {
+          return "Informe a data de vencimento do consignado.";
+        }
+      }
     }
     if (paymentTotals.amountDue > 0) {
       return "Pagamentos não fecham o total da venda.";
@@ -212,6 +226,7 @@ export function Checkout() {
     }
     setError(null);
     setSubmitting(true);
+    const today = new Date().toISOString().split("T")[0];
     const payload = {
       items: cart.items.map((item) => ({
         sku_id: item.sku_id,
@@ -226,10 +241,13 @@ export function Checkout() {
         installments: Number(line.installments) || 1,
         authorization_code: line.authorization_code || null,
         notes: line.notes || null,
+        due_date: line.due_date || null,
       })),
       discount_total: totals.discountAmount,
-      surcharge_total: 0,
+      surcharge_total: totals.surchargeAmount,
       notes: cart.notes || null,
+      customer_id: cart.customerId || null,
+      sale_date: cart.saleDate || today,
     };
     const { data, error: rpcError } = await supabase.rpc("finalize_sale", { payload });
     setSubmitting(false);
@@ -282,8 +300,12 @@ export function Checkout() {
       {loadingData && <p className="text-sm text-steel">Carregando métodos de pagamento...</p>}
 
       <Card className="p-6">
-        <p className="text-xs uppercase text-steel">Desconto e observações</p>
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
+        <p className="text-xs uppercase text-steel">Data da venda, desconto, acréscimo e observações</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <SaleDatePicker
+            value={cart.saleDate}
+            onChange={(date) => setSaleDate(date)}
+          />
           <div>
             <label className="text-xs uppercase text-steel">Tipo de desconto</label>
             <select
@@ -303,6 +325,24 @@ export function Checkout() {
             />
           </div>
           <div>
+            <label className="text-xs uppercase text-steel">Tipo de acréscimo</label>
+            <select
+              className="input"
+              value={cart.surchargeType}
+              onChange={(event) => setSurcharge(event.target.value as "AMOUNT" | "PERCENT", cart.surchargeValue)}
+            >
+              <option value="AMOUNT">R$</option>
+              <option value="PERCENT">%</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs uppercase text-steel">Valor do acréscimo</label>
+            <Input
+              value={cart.surchargeValue}
+              onChange={(event) => setSurcharge(cart.surchargeType, safeParseNumber(event.target.value))}
+            />
+          </div>
+          <div className="md:col-span-2 lg:col-span-3">
             <label className="text-xs uppercase text-steel">Observações</label>
             <Input value={cart.notes} onChange={(event) => setNotes(event.target.value)} placeholder="Opcional" />
           </div>
@@ -323,6 +363,7 @@ export function Checkout() {
           {payments.map((line) => {
             const method = methodMap.get(line.payment_method_id);
             const isCard = method?.type === "CARD_CREDIT" || method?.type === "CARD_DEBIT";
+            const isConsignado = method?.type === "CONSIGNADO";
             return (
               <div key={line.id} className="rounded-2xl border border-black/10 p-4">
                 <div className="grid gap-4 md:grid-cols-3">
@@ -381,11 +422,30 @@ export function Checkout() {
                       placeholder="Opcional"
                     />
                   </div>
-                  <div className="flex items-end justify-end">
-                    <Button variant="ghost" onClick={() => removePaymentLine(line.id)}>
-                      Remover linha
-                    </Button>
-                  </div>
+                  {isConsignado ? (
+                    <div>
+                      <label className="text-xs uppercase text-steel">Data de vencimento</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={line.due_date}
+                        onChange={(event) => updatePayment(line.id, { due_date: event.target.value })}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-end justify-end">
+                      <Button variant="ghost" onClick={() => removePaymentLine(line.id)}>
+                        Remover linha
+                      </Button>
+                    </div>
+                  )}
+                  {isConsignado && (
+                    <div className="flex items-end justify-end">
+                      <Button variant="ghost" onClick={() => removePaymentLine(line.id)}>
+                        Remover linha
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -396,8 +456,14 @@ export function Checkout() {
       <Card className="p-6">
         <p className="text-xs uppercase text-steel">Resumo financeiro</p>
         <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+          {cart.customerName && (
+            <p className="md:col-span-2">Cliente: <strong>{cart.customerName}</strong></p>
+          )}
           <p>Subtotal: <strong>{formatCurrency(totals.subtotal)}</strong></p>
           <p>Desconto total: <strong>{formatCurrency(totals.discountAmount)}</strong></p>
+          {totals.surchargeAmount > 0 && (
+            <p>Acréscimo: <strong>{formatCurrency(totals.surchargeAmount)}</strong></p>
+          )}
           <p>Total da venda: <strong>{formatCurrency(totals.total)}</strong></p>
           <p>Pago: <strong>{formatCurrency(paymentTotals.totalPaid)}</strong></p>
           <p>Falta pagar: <strong>{formatCurrency(paymentTotals.amountDue)}</strong></p>
@@ -415,4 +481,3 @@ export function Checkout() {
     </AppShell>
   );
 }
-
