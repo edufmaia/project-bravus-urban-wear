@@ -14,7 +14,19 @@ export function formatCurrency(value: number) {
 
 export function formatDate(value?: string | Date) {
   if (!value) return "-";
-  const date = typeof value === "string" ? new Date(value) : value;
+  let date: Date;
+  if (typeof value === "string") {
+    // Date-only strings (YYYY-MM-DD) parsed as UTC by JS, causing off-by-one in UTC-3.
+    // Parse manually as local time to avoid the timezone shift.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [year, month, day] = value.split("-").map(Number);
+      date = new Date(year, month - 1, day);
+    } else {
+      date = new Date(value);
+    }
+  } else {
+    date = value;
+  }
   return new Intl.DateTimeFormat("pt-BR").format(date);
 }
 
