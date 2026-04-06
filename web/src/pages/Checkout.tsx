@@ -75,6 +75,12 @@ export function Checkout() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [discountRaw, setDiscountRaw] = useState(() =>
+    cart.discountValue > 0 ? String(cart.discountValue) : ""
+  );
+  const [surchargeRaw, setSurchargeRaw] = useState(() =>
+    cart.surchargeValue > 0 ? String(cart.surchargeValue) : ""
+  );
 
   useEffect(() => {
     const loadData = async () => {
@@ -320,8 +326,12 @@ export function Checkout() {
           <div>
             <label className="text-xs uppercase text-steel">Valor do desconto</label>
             <Input
-              value={cart.discountValue}
-              onChange={(event) => setDiscount(cart.discountType, safeParseNumber(event.target.value))}
+              value={discountRaw}
+              onChange={(event) => {
+                setDiscountRaw(event.target.value);
+                setDiscount(cart.discountType, safeParseNumber(event.target.value));
+              }}
+              placeholder="0,00"
             />
           </div>
           <div>
@@ -338,8 +348,12 @@ export function Checkout() {
           <div>
             <label className="text-xs uppercase text-steel">Valor do acréscimo</label>
             <Input
-              value={cart.surchargeValue}
-              onChange={(event) => setSurcharge(cart.surchargeType, safeParseNumber(event.target.value))}
+              value={surchargeRaw}
+              onChange={(event) => {
+                setSurchargeRaw(event.target.value);
+                setSurcharge(cart.surchargeType, safeParseNumber(event.target.value));
+              }}
+              placeholder="0,00"
             />
           </div>
           <div className="md:col-span-2 lg:col-span-3">

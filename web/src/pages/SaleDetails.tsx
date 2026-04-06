@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Input } from "../components/ui/Input";
+import { Modal } from "../components/ui/Modal";
 import { ReturnModal } from "../components/pdv/ReturnModal";
+import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabaseClient";
 import { formatCurrency, formatDate } from "../lib/utils";
 
@@ -83,9 +86,21 @@ function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   return value ?? null;
 }
 
+type CustomerResult = { id: string; full_name: string; phone: string | null };
+
+type EditForm = {
+  customer_id: string | null;
+  customer_name: string;
+  sale_date: string;
+  notes: string;
+};
+
 export function SaleDetails() {
   const navigate = useNavigate();
   const { saleId } = useParams<{ saleId: string }>();
+  const { profile } = useAuth();
+  const canEdit = profile?.role === "ADMIN" || profile?.role === "GERENTE";
+
   const [sale, setSale] = useState<SaleDetail | null>(null);
   const [items, setItems] = useState<SaleItemRow[]>([]);
   const [payments, setPayments] = useState<SalePaymentRow[]>([]);
@@ -95,6 +110,75 @@ export function SaleDetails() {
   const [error, setError] = useState<string | null>(null);
   const [showReturn, setShowReturn] = useState(false);
   const [markingId, setMarkingId] = useState<string | null>(null);
+
+  // Edit sale state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm>({ customer_id: null, customer_name: "", sale_date: "", notes: "" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState<CustomerResult[]>([]);
+  const [showCustomerDrop, setShowCustomerDrop] = useState(false);
+  const customerDropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!customerQuery.trim()) { setCustomerResults([]); return; }
+    const timeout = setTimeout(async () => {
+      const { data } = await supabase
+        .from("customers")
+        .select("id, full_name, phone")
+        .or(`full_name.ilike.%${customerQuery}%,phone.ilike.%${customerQuery}%`)
+        .eq("status", "ATIVO")
+        .limit(8);
+      setCustomerResults((data ?? []) as CustomerResult[]);
+      setShowCustomerDrop(true);
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [customerQuery]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (customerDropRef.current && !customerDropRef.current.contains(e.target as Node)) {
+        setShowCustomerDrop(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const openEdit = () => {
+    if (!sale) return;
+    setEditForm({
+      customer_id: sale.customer_id,
+      customer_name: sale.customers?.full_name ?? "",
+      sale_date: sale.sale_date ?? "",
+      notes: sale.notes ?? "",
+    });
+    setCustomerQuery(sale.customers?.full_name ?? "");
+    setEditError(null);
+    setEditOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!sale) return;
+    setEditSaving(true);
+    setEditError(null);
+    const { error: updateError } = await supabase
+      .from("sales")
+      .update({
+        customer_id: editForm.customer_id || null,
+        sale_date: editForm.sale_date || null,
+        notes: editForm.notes || null,
+      })
+      .eq("id", sale.id);
+    setEditSaving(false);
+    if (updateError) {
+      setEditError(updateError.message || "Não foi possível salvar as alterações.");
+      return;
+    }
+    setEditOpen(false);
+    loadData();
+  };
 
   const loadData = async () => {
     if (!saleId) return;
@@ -261,6 +345,11 @@ export function SaleDetails() {
           <Button variant="outline" onClick={() => navigate("/vendas")}>
             Voltar ao histórico
           </Button>
+          {canEdit && sale && (
+            <Button variant="outline" onClick={openEdit}>
+              Editar venda
+            </Button>
+          )}
           {items.length > 0 && (
             <Button variant="outline" onClick={() => setShowReturn(true)}>
               Devolver itens
@@ -483,6 +572,81 @@ export function SaleDetails() {
           )}
         </>
       )}
+
+      <Modal open={editOpen} onClose={() => setEditOpen(false)}>
+        <p className="text-lg font-semibold">Editar venda #{sale?.number}</p>
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="relative md:col-span-2" ref={customerDropRef}>
+            <label className="text-xs uppercase text-steel">Cliente</label>
+            <Input
+              value={customerQuery}
+              onChange={(e) => {
+                setCustomerQuery(e.target.value);
+                if (!e.target.value.trim()) {
+                  setEditForm((f) => ({ ...f, customer_id: null, customer_name: "" }));
+                }
+              }}
+              placeholder="Buscar por nome ou telefone"
+            />
+            {editForm.customer_id && (
+              <p className="mt-1 text-xs text-steel">
+                Selecionado: <strong>{editForm.customer_name}</strong>
+                <button
+                  className="ml-2 text-ember underline"
+                  onClick={() => {
+                    setEditForm((f) => ({ ...f, customer_id: null, customer_name: "" }));
+                    setCustomerQuery("");
+                  }}
+                >
+                  Limpar
+                </button>
+              </p>
+            )}
+            {showCustomerDrop && customerResults.length > 0 && (
+              <div className="absolute z-20 mt-1 w-full rounded-2xl border border-black/10 bg-white shadow-lg">
+                {customerResults.map((c) => (
+                  <button
+                    key={c.id}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-black/5"
+                    onMouseDown={() => {
+                      setEditForm((f) => ({ ...f, customer_id: c.id, customer_name: c.full_name }));
+                      setCustomerQuery(c.full_name);
+                      setShowCustomerDrop(false);
+                    }}
+                  >
+                    <span className="font-medium">{c.full_name}</span>
+                    {c.phone && <span className="text-steel">{c.phone}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="text-xs uppercase text-steel">Data da venda</label>
+            <input
+              type="date"
+              className="input"
+              value={editForm.sale_date}
+              onChange={(e) => setEditForm((f) => ({ ...f, sale_date: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs uppercase text-steel">Observações</label>
+            <Input
+              value={editForm.notes}
+              onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+              placeholder="Opcional"
+            />
+          </div>
+        </div>
+        {editError && <p className="mt-3 text-sm text-ember">{editError}</p>}
+        <div className="mt-6 flex justify-end gap-3">
+          <Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
+          <Button onClick={handleSaveEdit} disabled={editSaving}>
+            {editSaving ? "Salvando..." : "Salvar alterações"}
+          </Button>
+        </div>
+      </Modal>
 
       {sale && (
         <ReturnModal
